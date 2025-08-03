@@ -1,7 +1,8 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
 
-import { TabBarIcon } from '@/components/navigation/TabBarIcon';
+import { HapticTab } from '@/components/HapticTab';
+import { IconSymbol } from '@/components/ui/IconSymbol';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
@@ -13,27 +14,26 @@ export default function TabLayout() {
       screenOptions={{
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
+        // This line ensures your custom HapticTab component is used for the tab bar buttons
+        tabBarButton: (props) => <HapticTab {...props} />,
       }}>
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
           tabBarIcon: ({ color, focused }) => (
-            <TabBarIcon name={focused ? 'home' : 'home-outline'} color={color} />
+            // I've updated this to use your project's IconSymbol component
+            <IconSymbol name={focused ? 'house.fill' : 'house'} color={color} />
           ),
         }}
       />
-      {/* This is the new screen we are adding to the tab bar.
-        - name: This must match the filename of our new screen (catalogue.tsx).
-        - title: This is the text that will appear under the icon.
-        - tabBarIcon: This specifies which icon to display. We're using a 'brush' icon.
-      */}
       <Tabs.Screen
         name="catalogue"
         options={{
           title: 'Catalogue',
           tabBarIcon: ({ color, focused }) => (
-            <TabBarIcon name={focused ? 'brush' : 'brush-outline'} color={color} />
+            // Using the IconSymbol component for our new catalogue tab
+            <IconSymbol name={focused ? 'paintbrush.fill' : 'paintbrush'} color={color} />
           ),
         }}
       />
@@ -42,7 +42,8 @@ export default function TabLayout() {
         options={{
           title: 'Explore',
           tabBarIcon: ({ color, focused }) => (
-            <TabBarIcon name={focused ? 'code-slash' : 'code-slash-outline'} color={color} />
+            // Using the IconSymbol component for the explore tab
+            <IconSymbol name={focused ? 'sparkles' : 'sparkles'} color={color} />
           ),
         }}
       />
