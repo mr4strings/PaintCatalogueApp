@@ -1,52 +1,56 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
+import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { useFonts } from 'expo-font';
+import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import { useEffect } from 'react';
+import { Alert } from 'react-native';
+import 'react-native-reanimated';
 
-import { HapticTab } from '@/components/HapticTab';
-import { IconSymbol } from '@/components/ui/IconSymbol';
-import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+// Import our reverted, asynchronous database functions
+import { init, populateInitialData } from '@/services/database';
 
-export default function TabLayout() {
+SplashScreen.preventAutoHideAsync();
+
+export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const [loaded] = useFonts({
+    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
+  });
+
+  // The useEffect hook now uses async/await to handle the Promises from our db functions.
+  useEffect(() => {
+    const setupDatabase = async () => {
+      try {
+        await init();
+        await populateInitialData(); // For prototype data
+        console.log('Database initialized successfully');
+      } catch (error) {
+        console.error('Database initialization failed.', error);
+        Alert.alert("Database Error", "Could not initialize the database.");
+      }
+    };
+    
+    setupDatabase();
+  }, []); // The empty dependency array [] means this effect runs only once.
+
+
+  useEffect(() => {
+    if (loaded) {
+      SplashScreen.hideAsync();
+    }
+  }, [loaded]);
+
+  if (!loaded) {
+    return null;
+  }
 
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        // This line ensures your custom HapticTab component is used for the tab bar buttons
-        tabBarButton: (props) => <HapticTab {...props} />,
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color, focused }) => (
-            // I've updated this to use your project's IconSymbol component
-            <IconSymbol name={focused ? 'house.fill' : 'house'} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="catalogue"
-        options={{
-          title: 'Catalogue',
-          tabBarIcon: ({ color, focused }) => (
-            // Using the IconSymbol component for our new catalogue tab
-            <IconSymbol name={focused ? 'paintbrush.fill' : 'paintbrush'} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Explore',
-          tabBarIcon: ({ color, focused }) => (
-            // Using the IconSymbol component for the explore tab
-            <IconSymbol name={focused ? 'sparkles' : 'sparkles'} color={color} />
-          ),
-        }}
-      />
-    </Tabs>
+    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <Stack>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="+not-found" />
+      </Stack>
+    </ThemeProvider>
   );
 }

@@ -1,122 +1,195 @@
-// I have removed the "import React from 'react';" line.
-// In modern React Native with Expo, React is automatically available in files using JSX,
-// so explicitly importing it can cause a "Duplicate identifier" error.
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
-import { FlatList, Image, StyleSheet, View } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
+import { BarCodeScanner } from 'expo-barcode-scanner';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Button, FlatList, Image, Modal, Pressable, StyleSheet, View } from 'react-native';
 
-// Define the structure of a single paint object for TypeScript
-type Paint = {
-  id: string;
-  imageUrl: string;
-  name: string;
-  brand: string;
-  colour: string;
-};
+// Import our reverted, asynchronous database functions
+import { IconSymbol } from '@/components/ui/IconSymbol';
+import { addOrUpdateUserPaint, decrementOrDeleteUserPaint, findPaintByBarcode, getUserLibraryPaints, UserPaint } from '@/services/database';
 
-// Hardcoded dummy data for our paint catalogue prototype.
-// In the future, this will come from a database.
-const DUMMY_PAINTS: Paint[] = [
-  { id: '1', imageUrl: 'https://placehold.co/40x40/ff0000/ffffff?text=P', name: 'Mephiston Red', brand: 'Citadel', colour: 'Red' },
-  { id: '2', imageUrl: 'https://placehold.co/40x40/0000ff/ffffff?text=P', name: 'Macragge Blue', brand: 'Citadel', colour: 'Blue' },
-  { id: '3', imageUrl: 'https://placehold.co/40x40/00ff00/ffffff?text=P', name: 'Goblin Green', brand: 'The Army Painter', colour: 'Green' },
-  { id: '4', imageUrl: 'https://placehold.co/40x40/ffff00/000000?text=P', name: 'Flash Gitz Yellow', brand: 'Citadel', colour: 'Yellow' },
-  { id: '5', imageUrl: 'https://placehold.co/40x40/000000/ffffff?text=P', name: 'Matt Black', brand: 'The Army Painter', colour: 'Black' },
-  { id: '6', imageUrl: 'https://placehold.co/40x40/ffffff/000000?text=P', name: 'Thamar Black', brand: 'P3', colour: 'Black' },
-];
-
-// This is the main component for our new screen.
 export default function CatalogueScreen() {
-  
-  // This component renders a single row in our table.
-  const renderPaintItem = ({ item }: { item: Paint }) => (
+  const [paints, setPaints] = useState<UserPaint[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [scannerVisible, setScannerVisible] = useState(false);
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [statusMessage, setStatusMessage] = useState<{type: 'error' | 'success', message: string} | null>(null);
+
+  const isFocused = useIsFocused();
+
+  // loadPaints is now an async function to handle the Promise from getUserLibraryPaints.
+  const loadPaints = async () => {
+    setIsLoading(true);
+    try {
+      const fetchedPaints = await getUserLibraryPaints();
+      setPaints(fetchedPaints);
+    } catch (err) {
+      console.log(err);
+      Alert.alert("Error", "Could not load paint library.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isFocused) {
+      loadPaints();
+    }
+  }, [isFocused]);
+
+  useEffect(() => {
+    const getBarCodeScannerPermissions = async () => {
+      const { status } = await BarCodeScanner.requestPermissionsAsync();
+      setHasPermission(status === 'granted');
+    };
+    getBarCodeScannerPermissions();
+  }, []);
+
+  // This handler is now async to await the results from our db functions.
+  const handleBarCodeScanned = async ({ data }: { data: string }) => {
+    setScannerVisible(false);
+    setStatusMessage(null);
+    try {
+      const paint = await findPaintByBarcode(data);
+      if (paint) {
+        await addOrUpdateUserPaint(paint.id);
+        setStatusMessage({ type: 'success', message: `${paint.name} added to library!` });
+        await loadPaints();
+      } else {
+        setStatusMessage({ type: 'error', message: 'Sorry, we could not identify this paint.' });
+      }
+    } catch (error) {
+      console.error(error);
+      setStatusMessage({ type: 'error', message: 'An error occurred while adding the paint.' });
+    }
+    setTimeout(() => setStatusMessage(null), 4000);
+  };
+
+  const handleAddPress = () => {
+    if (hasPermission === false) {
+      setStatusMessage({ type: 'error', message: 'No access to camera. Please enable it in your settings.'});
+      setTimeout(() => setStatusMessage(null), 4000);
+      return;
+    }
+    setScannerVisible(true);
+  };
+
+  // The delete handler is now async.
+  const handleDeletePress = (item: UserPaint) => {
+    Alert.alert(
+      "Confirm Action",
+      `Are you sure you want to remove one '${item.name}'?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "OK", onPress: async () => {
+            try {
+              await decrementOrDeleteUserPaint(item.id);
+              await loadPaints();
+            } catch (error) {
+              console.error("Failed to delete paint", error);
+              Alert.alert("Error", "Could not remove paint from library.");
+            }
+        }}
+      ]
+    );
+  };
+
+  const renderPaintItem = ({ item }: { item: UserPaint }) => (
     <View style={styles.row}>
-      <View style={styles.cell}>
-        <Image source={{ uri: item.imageUrl }} style={styles.paintImage} />
+      <View style={styles.cellImage}>
+        <Image 
+            source={{ uri: item.imageUrl || 'https://placehold.co/40x40/cccccc/ffffff?text=N/A' }} 
+            style={styles.paintImage} 
+        />
       </View>
-      <ThemedText style={styles.cell}>{item.name}</ThemedText>
-      <ThemedText style={styles.cell}>{item.brand}</ThemedText>
-      <ThemedText style={styles.cell}>{item.colour}</ThemedText>
+      <ThemedText style={styles.cellName}>{item.name}</ThemedText>
+      <ThemedText style={styles.cellBrand}>{item.brand}</ThemedText>
+      <ThemedText style={styles.cellQty}>{item.quantity}</ThemedText>
+      <View style={styles.cellAction}>
+        <Pressable onPress={() => handleDeletePress(item)}>
+          <IconSymbol name="trash" size={24} color="#ff3b30" />
+        </Pressable>
+      </View>
     </View>
   );
 
-  // This component renders the header row of our table.
   const renderHeader = () => (
     <View style={styles.headerRow}>
-      <ThemedText style={[styles.headerCell, styles.headerText]}>Paint</ThemedText>
-      <ThemedText style={[styles.headerCell, styles.headerText]}>Name</ThemedText>
-      <ThemedText style={[styles.headerCell, styles.headerText]}>Brand</ThemedText>
-      <ThemedText style={[styles.headerCell, styles.headerText]}>Colour</ThemedText>
+      <ThemedText style={[styles.headerText, styles.cellImage]}></ThemedText>
+      <ThemedText style={[styles.headerText, styles.cellName]}>Name</ThemedText>
+      <ThemedText style={[styles.headerText, styles.cellBrand]}>Brand</ThemedText>
+      <ThemedText style={[styles.headerText, styles.cellQty]}>Qty</ThemedText>
+      <ThemedText style={[styles.headerText, styles.cellAction]}>Actions</ThemedText>
     </View>
   );
 
   return (
     <ThemedView style={styles.container}>
-      <ThemedText type="title" style={styles.title}>My Paints</ThemedText>
-      {/* FlatList is a React Native component optimized for displaying long lists of data.
-        - data: The array of data to display.
-        - renderItem: A function that tells the list how to render each individual item.
-        - keyExtractor: A function that provides a unique key for each item, which helps React optimize rendering.
-        - ListHeaderComponent: A component to render at the very top of the list.
-      */}
-      <FlatList
-        data={DUMMY_PAINTS}
-        renderItem={renderPaintItem}
-        keyExtractor={(item) => item.id}
-        ListHeaderComponent={renderHeader}
-        style={styles.table}
-      />
+      <Modal
+        visible={scannerVisible}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setScannerVisible(false)}>
+          <View style={styles.modalContainer}>
+            <BarCodeScanner
+              onBarCodeScanned={scannerVisible ? handleBarCodeScanned : undefined}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <View style={styles.cancelButtonContainer}>
+              <Button title="Cancel" onPress={() => setScannerVisible(false)} color="#fff" />
+            </View>
+          </View>
+      </Modal>
+
+      <View style={styles.titleRow}>
+        <ThemedText type="title" style={styles.title}>My Paints</ThemedText>
+        <Pressable onPress={handleAddPress} style={styles.addButton}>
+            <IconSymbol name="plus.circle" size={32} color="#007AFF" />
+        </Pressable>
+      </View>
+      
+      {statusMessage && (
+        <ThemedView style={[styles.statusBox, statusMessage.type === 'error' ? styles.errorBox : styles.successBox]}>
+            <ThemedText>{statusMessage.message}</ThemedText>
+        </ThemedView>
+      )}
+
+      {isLoading ? (
+        <ActivityIndicator size="large" />
+      ) : (
+        <FlatList
+          data={paints}
+          renderItem={renderPaintItem}
+          keyExtractor={(item) => item.id.toString()}
+          ListHeaderComponent={renderHeader}
+          style={styles.table}
+          ListEmptyComponent={<ThemedText style={styles.emptyText}>Your paint library is empty!</ThemedText>}
+        />
+      )}
     </ThemedView>
   );
 }
 
-// StyleSheet is used to create our style objects, which is more efficient than inline styling.
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 16,
-  },
-  title: {
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  table: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    alignItems: 'center',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    backgroundColor: '#f0f0f0',
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
-  },
-  cell: {
-    flex: 1,
-    textAlign: 'left',
-  },
-  headerCell: {
-    flex: 1,
-    textAlign: 'left',
-  },
-  headerText: {
-    fontWeight: 'bold',
-  },
-  paintImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 8, // Rounded corners for the images
-  },
+  container: { flex: 1, padding: 16 },
+  titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  title: { flex: 1, textAlign: 'center', marginLeft: 48 },
+  addButton: { padding: 8 },
+  modalContainer: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', backgroundColor: 'black' },
+  cancelButtonContainer: { marginBottom: 40 },
+  table: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8 },
+  row: { flexDirection: 'row', paddingVertical: 8, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#eee', alignItems: 'center' },
+  headerRow: { flexDirection: 'row', paddingVertical: 12, paddingHorizontal: 8, backgroundColor: '#f0f0f0', borderTopLeftRadius: 8, borderTopRightRadius: 8, alignItems: 'center' },
+  headerText: { fontWeight: 'bold' },
+  cellImage: { flex: 0.7, alignItems: 'center' },
+  cellName: { flex: 2, paddingLeft: 8 },
+  cellBrand: { flex: 1.5 },
+  cellQty: { flex: 0.5, textAlign: 'center' },
+  cellAction: { flex: 0.8, alignItems: 'center' },
+  paintImage: { width: 40, height: 40, borderRadius: 8 },
+  emptyText: { textAlign: 'center', marginTop: 20, fontSize: 16 },
+  statusBox: { padding: 12, borderRadius: 8, marginBottom: 16 },
+  errorBox: { backgroundColor: '#f8d7da' },
+  successBox: { backgroundColor: '#d4edda' },
 });
